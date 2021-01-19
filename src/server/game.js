@@ -1,12 +1,17 @@
 const Constants = require('../shared/constants');
 const Player = require('./player');
+const Monster = require('./monster');
+
 const applyCollisions = require('./collisions');
+
+let monsterCreateCooldown = 0;
 
 class Game {
   constructor() {
     this.sockets = {};
     this.players = {};
     this.bullets = [];
+    this.monsters = {};
     this.lastUpdateTime = Date.now();
     this.shouldSendUpdate = false;
     setInterval(this.update.bind(this), 1000 / 60);
@@ -21,9 +26,21 @@ class Game {
     this.players[socket.id] = new Player(socket.id, username, x, y);
   }
 
+
+  addMonster(monsterId) {
+    // Generate a position to start this player at.
+    const x = Constants.MAP_SIZE * (0.25 + Math.random() * 0.5);
+    const y = Constants.MAP_SIZE * (0.25 + Math.random() * 0.5);
+    this.monsters[monsterId] = new Monster(monsterId, monsterId, x, y);
+  }
+
   removePlayer(socket) {
     delete this.sockets[socket.id];
     delete this.players[socket.id];
+  }
+
+  removeMonster(monsterId) {
+    delete this.monsters[monsterId];
   }
 
   handleInput(socket, dir) {
@@ -32,12 +49,20 @@ class Game {
     }
   }
 
+
   update() {
     // Calculate time elapsed
     const now = Date.now();
     const dt = (now - this.lastUpdateTime) / 1000;
     this.lastUpdateTime = now;
 
+    monsterCreateCooldown += dt;
+    if (monsterCreateCooldown >= 1) {
+      monsterCreateCooldown = 0;
+      if (Object.values(this.monsters).length <= 100) {
+        this.addMonster(makeId(12));
+      }
+    }
     // Update each bullet
     const bulletsToRemove = [];
     this.bullets.forEach(bullet => {
@@ -57,8 +82,17 @@ class Game {
       }
     });
 
+    // Update each monster bullet
+    Object.keys(this.monsters).forEach(monsterId => {
+      const player = this.monsters[monsterId];
+      const newBullet = player.update(dt);
+      if (newBullet) {
+        this.bullets.push(newBullet);
+      }
+    });
+
     // Apply collisions, give players score for hitting bullets
-    const destroyedBullets = applyCollisions(Object.values(this.players), this.bullets);
+    const destroyedBullets = applyCollisions(Object.values(this.players), this.bullets, Object.values(this.monsters));
     destroyedBullets.forEach(b => {
       if (this.players[b.parentID]) {
         this.players[b.parentID].onDealtDamage();
@@ -73,6 +107,14 @@ class Game {
       if (player.hp <= 0) {
         socket.emit(Constants.MSG_TYPES.GAME_OVER);
         this.removePlayer(socket);
+      }
+    });
+
+    // Check if any monsters are dead
+    Object.keys(this.monsters).forEach(monsterId => {
+      const monster = this.monsters[monsterId];
+      if (monster.hp <= 0) {
+        this.removeMonster(monsterId);
       }
     });
 
@@ -105,14 +147,26 @@ class Game {
       b => b.distanceTo(player) <= Constants.MAP_SIZE / 2,
     );
 
+    const nearbyMonsters = Object.values(this.monsters).filter(
+      m => m.distanceTo(player) <= Constants.MAP_SIZE / 2,
+    );
+
     return {
       t: Date.now(),
       me: player.serializeForUpdate(),
-      others: nearbyPlayers.map(p => p.serializeForUpdate()),
+      others: nearbyPlayers.map(p => p.serializeForUpdate()).concat(nearbyMonsters.map(m => m.serializeForUpdate())),
       bullets: nearbyBullets.map(b => b.serializeForUpdate()),
       leaderboard,
     };
   }
 }
-
+function makeId(length) {
+  let result = '';
+  const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const charactersLength = characters.length;
+  for (let i = 0; i < length; i++) {
+    result += characters.charAt(Math.floor(Math.random() * charactersLength));
+  }
+  return result;
+}
 module.exports = Game;

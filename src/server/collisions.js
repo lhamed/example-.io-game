@@ -1,7 +1,7 @@
 const Constants = require('../shared/constants');
 
 // Returns an array of bullets to be destroyed.
-function applyCollisions(players, bullets) {
+function applyCollisions(players, bullets, monsters) {
   const destroyedBullets = [];
   for (let i = 0; i < bullets.length; i++) {
     // Look for a player (who didn't create the bullet) to collide each bullet with.
@@ -15,6 +15,18 @@ function applyCollisions(players, bullets) {
       ) {
         destroyedBullets.push(bullet);
         player.takeBulletDamage();
+        break;
+      }
+    }
+    for (let j = 0; j < monsters.length; j++) {
+      const bullet = bullets[i];
+      const monster = monsters[j];
+      if (
+        bullet.parentID !== monster.id &&
+        monster.distanceTo(bullet) <= Constants.PLAYER_RADIUS + Constants.BULLET_RADIUS
+      ) {
+        destroyedBullets.push(bullet);
+        monster.takeBulletDamage();
         break;
       }
     }
